@@ -5,7 +5,7 @@ const Faculty = require('../models/Faculty');
 const SessionData = require('../models/SessionData');
 
 const queryCache = new Map();
-const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
+const CACHE_TTL = 1000 * 5; // 5 seconds (just to prevent rapid double-clicks, keep DB fresh)
 
 // POST /api/chat/schedule
 router.post('/schedule', async (req, res) => {
@@ -85,7 +85,10 @@ router.post('/agent', async (req, res) => {
         if (!apiKey) return res.status(500).json({ error: 'Gemini API key is not configured' });
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash",
+            generationConfig: { temperature: 0.7 }
+        });
 
         const systemInstruction = `
 You are a global AI Assistant for an exam allotment app. You act as a highly intelligent System Administrator.
@@ -99,7 +102,11 @@ Actions you can take:
    Payload: { "date": "YYYY-MM-DD", "downloadType": "department" (or "room"), "department": "DEPT_NAME" }
 3. "NAVIGATE_FILTER": Navigate the user to a page and automatically filter data.
    Payload: { "page": "/faculty", "filter": "DEPT_NAME" }
-4. "DATA_QUERY": Provide an answer to the user based on the database context provided below.
+4. "DATA_QUERY": Provide a highly specific, intelligent, and human-like answer based on the live database context below. 
+   - NEVER give robotic or vague answers (e.g., do not say "assigned to a room" or "room number not specified"). 
+   - State EXACT room numbers (e.g. "GJCB101"), dates, and sessions naturally. 
+   - If the context says "(Room: Unassigned)", explicitly and smartly inform the user: "Dr. [Name] is scheduled for duty in the [Session], but the physical room allocation hasn't been randomized yet."
+   - Be highly professional, warm, and precise. Act like a high-level, extremely intelligent executive assistant. You must sound "wow" and "next-level".
    Payload: {} (The conversational answer goes in the "reply" field).
 5. "NONE": Just chatting.
 
@@ -141,7 +148,7 @@ Only return valid JSON (either an object or an array of objects). Do not use mar
         let dbSummary = "Faculty Count: " + faculties.length + "\\n";
         // To save tokens, only provide high-level stats or a condensed list
         const condensedFaculty = faculties.map(f => {
-             const duties = (f.duties || []).map(d => `${d.date} ${d.session}`).join(', ');
+             const duties = (f.duties || []).map(d => `${d.date} ${d.session} (Room: ${d.room || 'Unassigned'}, Role: ${d.role || 'Any'})`).join(', ');
              return `${f.name} (${f.department}) - Duties: ${duties || 'None'}`;
         }).join('\\n');
         dbSummary += "Faculty Data:\\n" + condensedFaculty;
@@ -191,7 +198,7 @@ Only return valid JSON (either an object or an array of objects). Do not use mar
                         { role: "system", "content": finalSystemInstruction },
                         { role: "user", "content": prompt }
                     ],
-                    temperature: 0.1,
+                    temperature: 0.7,
                     max_tokens: 4000
                 })
             });
@@ -222,6 +229,19 @@ Only return valid JSON (either an object or an array of objects). Do not use mar
         try {
             let jsonStr = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
             
+            // Force string to start with a bracket
+            const firstOpen = Math.max(jsonStr.indexOf('{') > -1 ? jsonStr.indexOf('{') : -1, jsonStr.indexOf('[') > -1 ? jsonStr.indexOf('[') : -1) === -1 ? -1 : Math.min(...[jsonStr.indexOf('{'), jsonStr.indexOf('[')].filter(i => i > -1));
+            
+            if (firstOpen !== -1) {
+                jsonStr = jsonStr.substring(firstOpen);
+            }
+
+            // Strip conversational suffix
+            const match = jsonStr.match(/(\{|\[)[\s\S]*(\}|\])/);
+            if (match) {
+                jsonStr = match[0];
+            }
+            
             // Robust self-healing: if parse fails due to cut-off, keep adding closing braces
             let parseSuccess = false;
             let attempts = 0;
@@ -241,13 +261,14 @@ Only return valid JSON (either an object or an array of objects). Do not use mar
             }
             
             if (!parseSuccess) {
-                throw new Error("Could not heal JSON");
+                // Fallback: If the AI just returned plain conversational text without brackets
+                parsedJSON = { reply: responseText.trim(), action: "DATA_QUERY" };
+            } else {
+                queryCache.set(cacheKey, { timestamp: Date.now(), data: parsedJSON });
             }
-
-            queryCache.set(cacheKey, { timestamp: Date.now(), data: parsedJSON });
         } catch (parseError) {
             console.error("Failed to parse agent JSON:", responseText);
-            return res.json({ reply: responseText, action: "NONE" });
+            parsedJSON = { reply: responseText.trim(), action: "NONE" };
         }
 
         res.json(parsedJSON);
