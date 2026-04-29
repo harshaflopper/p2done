@@ -222,13 +222,28 @@ Only return valid JSON (either an object or an array of objects). Do not use mar
         try {
             let jsonStr = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
             
-            // Basic self-healing for unclosed brackets/braces from token limits
-            if (jsonStr.startsWith('{') && !jsonStr.endsWith('}')) jsonStr += '}';
-            if (jsonStr.startsWith('[') && !jsonStr.endsWith(']')) jsonStr += ']';
-            // Handle double unclosed in rare deep nesting cases
-            if (jsonStr.startsWith('{') && !jsonStr.endsWith('}}') && jsonStr.includes('{"dates":')) jsonStr += '}'; 
+            // Robust self-healing: if parse fails due to cut-off, keep adding closing braces
+            let parseSuccess = false;
+            let attempts = 0;
+            
+            while (!parseSuccess && attempts < 10) {
+                try {
+                    parsedJSON = JSON.parse(jsonStr);
+                    parseSuccess = true;
+                } catch (e) {
+                    if (jsonStr.startsWith('[')) {
+                        jsonStr += ']';
+                    } else {
+                        jsonStr += '}';
+                    }
+                    attempts++;
+                }
+            }
+            
+            if (!parseSuccess) {
+                throw new Error("Could not heal JSON");
+            }
 
-            parsedJSON = JSON.parse(jsonStr);
             queryCache.set(cacheKey, { timestamp: Date.now(), data: parsedJSON });
         } catch (parseError) {
             console.error("Failed to parse agent JSON:", responseText);
