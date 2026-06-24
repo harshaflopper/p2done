@@ -1,280 +1,282 @@
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const Faculty = require('../models/Faculty');
 const SessionData = require('../models/SessionData');
 
-const queryCache = new Map();
-const CACHE_TTL = 1000 * 5; // 5 seconds (just to prevent rapid double-clicks, keep DB fresh)
-
-// POST /api/chat/schedule
-router.post('/schedule', async (req, res) => {
-    try {
-        const { prompt } = req.body;
-        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
-
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) return res.status(500).json({ error: 'Gemini API key is not configured in .env' });
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
-
-        const systemInstruction = `
-You are a highly intelligent scheduling assistant for an exam allotment system. 
-The user will give you a natural language prompt about scheduling exams for specific dates and specifying room requirements for morning and afternoon sessions.
-Today's date is ${new Date().toISOString().split('T')[0]}. Assume the current year is ${new Date().getFullYear()} if not specified.
-Extract the dates and the room requirements.
-If they say "schedule exams for May 12th and 13th with 10 rooms in the morning and 5 in the afternoon", you should apply those room counts to all dates mentioned.
-You MUST respond with a pure JSON object in exactly this format, and nothing else (no markdown blocks, no text before or after):
-{
-  "dates": ["YYYY-MM-DD", "YYYY-MM-DD"],
-  "config": {
-    "YYYY-MM-DD": {
-      "morning": { "rooms": X },
-      "afternoon": { "rooms": Y }
-    }
-  }
-}
-If a session (morning or afternoon) is not mentioned or they say to "skip" it, set "rooms": 0.
-Make sure all dates mentioned are valid YYYY-MM-DD strings.
-`;
-
-        const result = await (async () => {
-            let retries = 3;
-            while (retries > 0) {
-                try {
-                    return await model.generateContent(`${systemInstruction}\n\nUser prompt: "${prompt}"`);
-                } catch (e) {
-                    if (e.status === 503 && retries > 1) {
-                        console.log("503 received, retrying in 2 seconds...");
-                        await new Promise(r => setTimeout(r, 2000));
-                        retries--;
-                    } else {
-                        throw e;
+const tools = [{
+    functionDeclarations: [
+        {
+            name: "extractDatesForScheduling",
+            description: "When the user wants to schedule or allot exams, extract the specific dates they mentioned. The UI will then ask them for room counts.",
+            parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                    dates: { 
+                        type: SchemaType.ARRAY, 
+                        items: { type: SchemaType.STRING }, 
+                        description: "List of dates in YYYY-MM-DD format." 
                     }
-                }
+                },
+                required: ["dates"]
             }
-        })();
-        
-        const responseText = result.response.text();
-        
-        let parsedJSON;
-        try {
-            const jsonStr = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-            parsedJSON = JSON.parse(jsonStr);
-        } catch (parseError) {
-            console.error("Failed to parse Gemini response as JSON:", responseText);
-            return res.status(500).json({ error: 'Failed to generate a valid schedule structure from prompt.' });
+        },
+        {
+            name: "modifyFacultyDetails",
+            description: "POWERFUL TOOL: Use this to add a new faculty member OR edit ANY details of an existing one (including designation, name, initials, phone, email, department).",
+            parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                    operation: { type: SchemaType.STRING, description: "Either 'add' or 'edit'" },
+                    targetIdentifier: { type: SchemaType.STRING, description: "The name or initials of the faculty to edit/add (e.g. 'SK', 'John Doe'). Used to find them." },
+                    newName: { type: SchemaType.STRING, description: "New name to set (if updating name or adding)" },
+                    newInitials: { type: SchemaType.STRING, description: "New initials to set" },
+                    designation: { type: SchemaType.STRING, description: "Designation, e.g., Professor, Associate Professor, Assistant Professor" },
+                    department: { type: SchemaType.STRING, description: "Department, e.g., CSE, ECE" },
+                    phone: { type: SchemaType.STRING, description: "Phone number or contact detail" },
+                    email: { type: SchemaType.STRING, description: "Email address" }
+                },
+                required: ["operation", "targetIdentifier"]
+            }
+        },
+        {
+            name: "readFacultyDuties",
+            description: "Fetch the allotted exam duties (dates, rooms, sessions) for a specific faculty member using their name or initials.",
+            parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                    identifier: { type: SchemaType.STRING, description: "Name or initials of the faculty member (e.g. 'SK', 'John Doe')" }
+                },
+                required: ["identifier"]
+            }
+        },
+        {
+            name: "downloadSessionPdf",
+            description: "When the user asks to download a PDF report or allotment for a specific date/session/dept.",
+            parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                    date: { type: SchemaType.STRING, description: "YYYY-MM-DD" },
+                    session: { type: SchemaType.STRING, description: "morning or afternoon" },
+                    department: { type: SchemaType.STRING, description: "Department context if mentioned, otherwise empty." }
+                },
+                required: ["date", "session"]
+            }
+        },
+        {
+            name: "standardReply",
+            description: "Reply conversationally to the user if no other tool is applicable. Use markdown.",
+            parameters: {
+                type: SchemaType.OBJECT,
+                properties: {
+                    text: { type: SchemaType.STRING, description: "The conversational response." }
+                },
+                required: ["text"]
+            }
         }
+    ]
+}];
 
-        res.json(parsedJSON);
+const systemInstruction = `You are Core AI, the advanced autonomous administrator of the Exam Allotment System.
+Today's date is ${new Date().toISOString().split('T')[0]}.
+Always use one of your tools. 
+1. If the user wants to schedule or allot exams but hasn't provided specific dates, use 'standardReply' to ask them which dates (and any holidays to skip) they want to schedule for.
+2. If the user mentions scheduling for specific dates, call 'extractDatesForScheduling'.
+3. If the user wants to add or update faculty, use 'modifyFacultyDetails'. You have full permission to change their designation, initials, name, or any other field.
+4. If they ask for a faculty's assigned duties/rooms, use 'readFacultyDuties'.
+5. If they ask to download a PDF, use 'downloadSessionPdf'.
+6. Otherwise, use 'standardReply'.
+Do not ask follow up questions about room counts; just extract dates and the UI will handle it!`;
 
-    } catch (err) {
-        console.error('Chat schedule error:', err);
-        res.status(500).json({ error: 'Server error processing chat schedule' });
-    }
-});
+let cachedModel = null;
+function getModel() {
+    if (cachedModel) return cachedModel;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('Gemini API key is not configured in .env');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    cachedModel = genAI.getGenerativeModel({ 
+        model: "gemini-2.5-flash",
+        tools: tools,
+        systemInstruction,
+        generationConfig: { temperature: 0.2 }
+    });
+    return cachedModel;
+}
 
 // POST /api/chat/agent
 router.post('/agent', async (req, res) => {
     try {
-        const { prompt } = req.body;
+        let { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) return res.status(500).json({ error: 'Gemini API key is not configured' });
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash",
-            generationConfig: { temperature: 0.7 }
-        });
-
-        const systemInstruction = `
-You are a global AI Assistant for an exam allotment app. You act as a highly intelligent System Administrator.
-You can perform SINGLE actions or CHAINED actions.
-To chain actions, simply return a JSON ARRAY of action objects instead of a single object.
-
-Actions you can take:
-1. "AUTO_WORKFLOW": Schedule and Allocate Exams.
-   Payload: { "dates": ["YYYY-MM-DD"], "config": { "YYYY-MM-DD": { "morning": { "rooms": X }, "afternoon": { "rooms": Y } } } }
-2. "DOWNLOAD_PDF": Download PDFs for room allotment.
-   Payload: { "date": "YYYY-MM-DD", "downloadType": "department" (or "room"), "department": "DEPT_NAME" }
-3. "NAVIGATE_FILTER": Navigate the user to a page and automatically filter data.
-   Payload: { "page": "/faculty", "filter": "DEPT_NAME" }
-4. "DATA_QUERY": Provide a highly specific, intelligent, and human-like answer based on the live database context below. 
-   - NEVER give robotic or vague answers (e.g., do not say "assigned to a room" or "room number not specified"). 
-   - State EXACT room numbers (e.g. "GJCB101"), dates, and sessions naturally. 
-   - If the context says "(Room: Unassigned)", explicitly and smartly inform the user: "Dr. [Name] is scheduled for duty in the [Session], but the physical room allocation hasn't been randomized yet."
-   - Be highly professional, warm, and precise. Act like a high-level, extremely intelligent executive assistant. You must sound "wow" and "next-level".
-   Payload: {} (The conversational answer goes in the "reply" field).
-5. "NONE": Just chatting.
-
-Example of a CHAINED response (array):
-[
-  { "reply": "I am scheduling May 12th.", "action": "AUTO_WORKFLOW", "payload": { "dates": ["2026-05-12"], "config": {"2026-05-12": {"morning": {"rooms": 10}, "afternoon": {"rooms": 5}}} } },
-  { "reply": "And downloading the CS PDF.", "action": "DOWNLOAD_PDF", "payload": { "date": "2026-05-12", "downloadType": "department", "department": "COMPUTER SCIENCE AND ENGINEERING" } }
-]
-
-Example of a SINGLE response (object):
-{ "reply": "Dr. Smith has 2 duties.", "action": "DATA_QUERY", "payload": {} }
-
-CRITICAL INSTRUCTION FOR DEPARTMENTS: 
-If the user asks for a department, map their request to one of these EXACT strings:
-- "COMPUTER SCIENCE AND ENGINEERING" (for CS, CSE)
-- "ECE  ELECTRONICS AND COMMUNICATION ENGINEERING" (for EC, ECE)
-- "MECHANICAL ENGINEERING" (for mech)
-- "CIVIL ENGINEERING" (for cv)
-- "EEE  ELECTRICAL ENGINEERING" (for ee)
-- "INFORMATION SCIENCE AND ENGINEERING" (for is, ise)
-- "IT ELECTRONICS AND INSTRUMENTATION" (for it)
-- "INDUSTRIAL ENGINEERING AND MANAGEMENT" (for iem)
-- "TELECOMMUNICATION AND ENGINEERING" (for tc)
-- "CHEMICAL ENGINEERING" (for chem)
-- "BIO-TECHNOLOGY" (for bt)
-- "MCA", "MBA", "PHYSICS", "CHEMISTRY", "MATHEMATICS"
-
-DATABASE CONTEXT (LIVE DATA):
-[DB_CONTEXT_PLACEHOLDER]
-
-Assume current year is ${new Date().getFullYear()}. Today is ${new Date().toISOString().split('T')[0]}.
-Only return valid JSON (either an object or an array of objects). Do not use markdown.
-`;
-
-        // Fetch DB Context
-        const faculties = await Faculty.find({}).lean();
-        const sessions = await SessionData.find({}).lean();
-        
-        let dbSummary = "Faculty Count: " + faculties.length + "\\n";
-        // To save tokens, only provide high-level stats or a condensed list
-        const condensedFaculty = faculties.map(f => {
-             const duties = (f.duties || []).map(d => `${d.date} ${d.session} (Room: ${d.room || 'Unassigned'}, Role: ${d.role || 'Any'})`).join(', ');
-             return `${f.name} (${f.department}) - Duties: ${duties || 'None'}`;
-        }).join('\\n');
-        dbSummary += "Faculty Data:\\n" + condensedFaculty;
-        
-        const finalSystemInstruction = systemInstruction.replace('[DB_CONTEXT_PLACEHOLDER]', dbSummary);
-
-        const cacheKey = prompt.trim().toLowerCase();
-        if (queryCache.has(cacheKey)) {
-            const cached = queryCache.get(cacheKey);
-            if (Date.now() - cached.timestamp < CACHE_TTL) {
-                return res.json(cached.data);
-            } else {
-                queryCache.delete(cacheKey);
-            }
+        if (prompt.length > 500) {
+            prompt = prompt.substring(0, 500); // Truncate prompt to prevent abuse/costs
         }
 
-        const tryGemini = async () => {
-            let retries = 2;
-            while (retries > 0) {
-                try {
-                    const result = await model.generateContent(`${finalSystemInstruction}\n\nUser prompt: "${prompt}"`);
-                    return result.response.text();
-                } catch (e) {
-                    if (e.status === 503 && retries > 1) {
-                        await new Promise(r => setTimeout(r, 2000));
-                        retries--;
-                    } else {
-                        throw e;
-                    }
+        // FAST-PATH: Direct Initials Lookup (bypass AI to save limits/time)
+        const trimmedPrompt = prompt.trim();
+        if (trimmedPrompt.length > 0 && trimmedPrompt.length <= 4 && !trimmedPrompt.includes(' ')) {
+            const faculty = await Faculty.findOne({
+                initials: trimmedPrompt.toUpperCase()
+            }).lean();
+
+            if (faculty) {
+                if (!faculty.duties || faculty.duties.length === 0) {
+                    return res.json({ action: "DATA_QUERY", reply: `**${faculty.name}** currently has no allotted exam duties.` });
                 }
+
+                let mdReply = `**Exam Duties for ${faculty.name} (${faculty.initials})**\n\n`;
+                faculty.duties.forEach(duty => {
+                    mdReply += `- **${duty.date}** | ${duty.session} | Room: **${duty.room}** | Role: ${duty.role}\n`;
+                });
+
+                return res.json({ action: "DATA_QUERY", reply: mdReply });
             }
-        };
+            // If not found, fall through to the AI agent just in case it means something else
+        }
 
-        const tryGroq = async () => {
-            const groqKey = process.env.GROQ_API_KEY;
-            if (!groqKey) throw new Error("No GROQ_API_KEY available for fallback.");
-            
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${groqKey}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    model: "llama-3.3-70b-versatile",
-                    messages: [
-                        { role: "system", "content": finalSystemInstruction },
-                        { role: "user", "content": prompt }
-                    ],
-                    temperature: 0.7,
-                    max_tokens: 4000
-                })
-            });
-
-            if (!response.ok) {
-                const errData = await response.text();
-                throw new Error(`Groq API Error: ${response.status} ${errData}`);
-            }
-
-            const data = await response.json();
-            return data.choices[0].message.content;
-        };
-
-        let responseText = "";
+        let model;
         try {
-            responseText = await tryGemini();
-        } catch (e) {
-            console.warn("Gemini failed/exhausted (e.g. 429 limit). Falling back to Groq. Reason:", e.message);
+            model = getModel();
+        } catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+
+        const chat = model.startChat();
+        let result;
+        let attempt = 0;
+        let maxRetries = 3;
+
+        while (attempt < maxRetries) {
             try {
-                responseText = await tryGroq();
-            } catch (groqErr) {
-                console.error("Groq fallback also failed:", groqErr.message);
-                throw e; // throw original Gemini error if both fail
-            }
-        }
-        
-        let parsedJSON;
-        try {
-            let jsonStr = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-            
-            // Force string to start with a bracket
-            const firstOpen = Math.max(jsonStr.indexOf('{') > -1 ? jsonStr.indexOf('{') : -1, jsonStr.indexOf('[') > -1 ? jsonStr.indexOf('[') : -1) === -1 ? -1 : Math.min(...[jsonStr.indexOf('{'), jsonStr.indexOf('[')].filter(i => i > -1));
-            
-            if (firstOpen !== -1) {
-                jsonStr = jsonStr.substring(firstOpen);
-            }
-
-            // Strip conversational suffix
-            const match = jsonStr.match(/(\{|\[)[\s\S]*(\}|\])/);
-            if (match) {
-                jsonStr = match[0];
-            }
-            
-            // Robust self-healing: if parse fails due to cut-off, keep adding closing braces
-            let parseSuccess = false;
-            let attempts = 0;
-            
-            while (!parseSuccess && attempts < 10) {
-                try {
-                    parsedJSON = JSON.parse(jsonStr);
-                    parseSuccess = true;
-                } catch (e) {
-                    if (jsonStr.startsWith('[')) {
-                        jsonStr += ']';
-                    } else {
-                        jsonStr += '}';
+                result = await chat.sendMessage(prompt);
+                break;
+            } catch (apiErr) {
+                if (apiErr.message && apiErr.message.includes('503') && attempt < maxRetries - 1) {
+                    attempt++;
+                    const waitTime = Math.pow(2, attempt) * 1000;
+                    console.log(`Gemini 503 error, retrying in ${waitTime}ms (Attempt ${attempt})...`);
+                    await new Promise(r => setTimeout(r, waitTime));
+                } else {
+                    console.error("Gemini API Error:", apiErr);
+                    let errMsg = apiErr.message;
+                    if (errMsg.includes('503')) {
+                        errMsg = "The AI service is currently experiencing extremely high demand (503 Service Unavailable). Please try again in a minute.";
                     }
-                    attempts++;
+                    return res.json({ action: "DATA_QUERY", reply: "**API Error:** " + errMsg });
                 }
             }
-            
-            if (!parseSuccess) {
-                // Fallback: If the AI just returned plain conversational text without brackets
-                parsedJSON = { reply: responseText.trim(), action: "DATA_QUERY" };
-            } else {
-                queryCache.set(cacheKey, { timestamp: Date.now(), data: parsedJSON });
-            }
-        } catch (parseError) {
-            console.error("Failed to parse agent JSON:", responseText);
-            parsedJSON = { reply: responseText.trim(), action: "NONE" };
         }
 
-        res.json(parsedJSON);
+        const call = result.response.functionCalls() ? result.response.functionCalls()[0] : null;
+
+        if (call) {
+            console.log("Function Call Triggered:", call.name);
+            const args = call.args;
+
+            if (call.name === 'extractDatesForScheduling') {
+                // UI will handle rendering the matrix
+                return res.json({ 
+                    action: "REQUIRE_ROOM_COUNTS", 
+                    payload: { dates: args.dates }, 
+                    reply: "Please specify the room counts for the requested dates below:" 
+                });
+            }
+
+            if (call.name === 'modifyFacultyDetails') {
+                try {
+                    const searchStr = args.targetIdentifier.trim();
+                    let query = {
+                        $or: [
+                            { initials: searchStr.toUpperCase() },
+                            { name: { $regex: new RegExp('^' + searchStr + '$', 'i') } }
+                        ]
+                    };
+                    let existing = await Faculty.findOne(query);
+
+                    if (args.operation === 'add' || (!existing && args.operation !== 'edit')) {
+                        const newFac = new Faculty({
+                            name: args.newName || args.targetIdentifier,
+                            initials: args.newInitials || args.targetIdentifier.substring(0, 3).toUpperCase(),
+                            department: args.department || "Unassigned",
+                            designation: args.designation || "Assistant Professor",
+                            phone: args.phone || "",
+                            email: args.email || ""
+                        });
+                        await newFac.save();
+                        return res.json({ action: "DATA_QUERY", reply: `Successfully added **${newFac.name}** (${newFac.initials})${newFac.department !== 'Unassigned' ? ' to ' + newFac.department : ''}.` });
+                    } else if (existing) {
+                        let updates = [];
+                        if (args.newName) { existing.name = args.newName; updates.push(`name to ${args.newName}`); }
+                        if (args.newInitials) { existing.initials = args.newInitials; updates.push(`initials to ${args.newInitials}`); }
+                        if (args.department) { existing.department = args.department; updates.push(`department to ${args.department}`); }
+                        if (args.designation) { existing.designation = args.designation; updates.push(`designation to ${args.designation}`); }
+                        if (args.phone) { existing.phone = args.phone; updates.push(`phone to ${args.phone}`); }
+                        if (args.email) { existing.email = args.email; updates.push(`email to ${args.email}`); }
+                        
+                        if (updates.length > 0) {
+                            await existing.save();
+                            return res.json({ action: "DATA_QUERY", reply: `Successfully updated **${existing.name}** (${existing.initials}): ${updates.join(', ')}.` });
+                        } else {
+                            return res.json({ action: "DATA_QUERY", reply: `Found **${existing.name}**, but no fields were provided to update.` });
+                        }
+                    } else {
+                        return res.json({ action: "DATA_QUERY", reply: `Could not find any faculty matching "${searchStr}" to edit.` });
+                    }
+                } catch (dbErr) {
+                    return res.json({ action: "DATA_QUERY", reply: "Database Error: " + dbErr.message });
+                }
+            }
+
+            if (call.name === 'readFacultyDuties') {
+                try {
+                    const searchStr = args.identifier.trim();
+                    const faculty = await Faculty.findOne({
+                        $or: [
+                            { initials: searchStr.toUpperCase() },
+                            { name: { $regex: new RegExp(searchStr, 'i') } }
+                        ]
+                    }).lean();
+
+                    if (!faculty) {
+                        return res.json({ action: "DATA_QUERY", reply: `I couldn't find any faculty matching "${searchStr}".` });
+                    }
+
+                    if (!faculty.duties || faculty.duties.length === 0) {
+                        return res.json({ action: "DATA_QUERY", reply: `**${faculty.name}** currently has no allotted exam duties.` });
+                    }
+
+                    let mdReply = `**Exam Duties for ${faculty.name} (${faculty.initials})**\n\n`;
+                    faculty.duties.forEach(duty => {
+                        mdReply += `- **${duty.date}** | ${duty.session} | Room: **${duty.room}** | Role: ${duty.role}\n`;
+                    });
+
+                    return res.json({ action: "DATA_QUERY", reply: mdReply });
+                } catch (dbErr) {
+                    return res.json({ action: "DATA_QUERY", reply: "Database Error: " + dbErr.message });
+                }
+            }
+
+            if (call.name === 'downloadSessionPdf') {
+                return res.json({ 
+                    action: "DOWNLOAD_PDF", 
+                    payload: { date: args.date, session: args.session, department: args.department }, 
+                    reply: `Generating ${args.department || ''} PDF for ${args.date} (${args.session})...` 
+                });
+            }
+
+            if (call.name === 'standardReply') {
+                return res.json({ action: "DATA_QUERY", reply: args.text });
+            }
+        }
+
+        // If no function call, use standard text
+        const text = result.response.text();
+        return res.json({ action: "DATA_QUERY", reply: text || "I didn't quite understand that." });
+
     } catch (err) {
         console.error('Agent error:', err);
-        res.status(500).json({ error: 'Agent failed to process' });
+        res.status(500).json({ action: "DATA_QUERY", reply: 'Agent failed to process your request.' });
     }
 });
 
