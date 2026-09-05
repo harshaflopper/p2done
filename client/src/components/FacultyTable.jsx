@@ -1,6 +1,20 @@
 import React, { useContext } from 'react';
 import AuthContext from '../context/AuthContext';
 
+const getDesignationRank = (designation) => {
+    const d = (designation || '').toLowerCase().trim();
+    if (d.includes('professor') && !d.includes('assistant') && !d.includes('asst') && !d.includes('associate') && !d.includes('assoc')) {
+        return 1; // Professor
+    }
+    if (d.includes('associate') || d.includes('assoc')) {
+        return 2; // Associate Professor
+    }
+    if (d.includes('assistant') || d.includes('asst')) {
+        return 3; // Assistant Professor
+    }
+    return 4; // Others / Lecturers
+};
+
 const FacultyTable = ({ faculty, onToggleStatus, onDelete, onViewDuties }) => {
     const { user } = useContext(AuthContext);
 
@@ -14,6 +28,22 @@ const FacultyTable = ({ faculty, onToggleStatus, onDelete, onViewDuties }) => {
             </div>
         );
     }
+
+    const sortedFaculty = [...faculty].sort((a, b) => {
+        const rankA = getDesignationRank(a.designation);
+        const rankB = getDesignationRank(b.designation);
+
+        if (rankA !== rankB) {
+            return rankA - rankB; // Professor -> Associate -> Assistant -> Others
+        }
+
+        const deptA = (a.department || '').toLowerCase();
+        const deptB = (b.department || '').toLowerCase();
+        if (deptA < deptB) return -1;
+        if (deptA > deptB) return 1;
+
+        return (a.name || '').localeCompare(b.name || '');
+    });
 
     return (
         <div className="w-full">
@@ -43,7 +73,7 @@ const FacultyTable = ({ faculty, onToggleStatus, onDelete, onViewDuties }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-retro-border">
-                            {faculty.map((fac) => (
+                            {sortedFaculty.map((fac) => (
                                 <tr
                                     key={fac._id}
                                     className="group hover:bg-retro-cream/30 transition-colors duration-200"
