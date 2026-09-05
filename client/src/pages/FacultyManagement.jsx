@@ -146,11 +146,38 @@ const FacultyManagement = () => {
         }
     };
 
+    const [designationFilter, setDesignationFilter] = useState('');
+
+    const matchesDesignation = (facultyDesignation, filterKey) => {
+        if (!filterKey) return true;
+        const desig = (facultyDesignation || '').toLowerCase().trim();
+
+        if (filterKey === 'PROFESSOR') {
+            return (desig.includes('professor') || desig.includes('prof')) &&
+                !desig.includes('assistant') && !desig.includes('asst') &&
+                !desig.includes('associate') && !desig.includes('assoc');
+        }
+        if (filterKey === 'ASSOCIATE') {
+            return desig.includes('associate') || desig.includes('assoc');
+        }
+        if (filterKey === 'ASSISTANT') {
+            return desig.includes('assistant') || desig.includes('asst');
+        }
+        if (filterKey === 'OTHER') {
+            const isProf = desig.includes('professor') || desig.includes('prof') ||
+                desig.includes('assistant') || desig.includes('asst') ||
+                desig.includes('associate') || desig.includes('assoc');
+            return !isProf;
+        }
+        return true;
+    };
+
     const filteredFaculty = faculty.filter(f => {
         const matchesSearch = f.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             f.initials.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesDept = departmentFilter ? f.department === departmentFilter : true;
-        return matchesSearch && matchesDept;
+        const matchesDesig = matchesDesignation(f.designation, designationFilter);
+        return matchesSearch && matchesDept && matchesDesig;
     });
 
     return (
@@ -200,7 +227,22 @@ const FacultyManagement = () => {
                     />
                 </div>
                 <div className="md:w-px md:h-8 bg-retro-dark/10 hidden md:block"></div>
-                <div className="md:w-64 w-full relative">
+                <div className="md:w-52 w-full relative">
+                    <select
+                        className="w-full pl-4 pr-10 py-3 rounded-lg bg-transparent text-retro-secondary font-bold outline-none cursor-pointer appearance-none hover:bg-retro-cream/20 transition-colors text-xs uppercase tracking-wider"
+                        value={designationFilter}
+                        onChange={(e) => setDesignationFilter(e.target.value)}
+                    >
+                        <option value="" className="bg-white text-retro-secondary">All Roles</option>
+                        <option value="PROFESSOR" className="bg-white text-retro-dark">Professors</option>
+                        <option value="ASSOCIATE" className="bg-white text-retro-dark">Associate Prof.</option>
+                        <option value="ASSISTANT" className="bg-white text-retro-dark">Assistant Prof.</option>
+                        <option value="OTHER" className="bg-white text-retro-dark">Others</option>
+                    </select>
+                    <i className="bi bi-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-retro-secondary pointer-events-none text-xs"></i>
+                </div>
+                <div className="md:w-px md:h-8 bg-retro-dark/10 hidden md:block"></div>
+                <div className="md:w-52 w-full relative">
                     <select
                         className="w-full pl-4 pr-10 py-3 rounded-lg bg-transparent text-retro-secondary font-bold outline-none cursor-pointer appearance-none hover:bg-retro-cream/20 transition-colors text-xs uppercase tracking-wider"
                         value={departmentFilter}

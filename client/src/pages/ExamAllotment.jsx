@@ -245,9 +245,43 @@ const ExamAllotment = () => {
     const [calendarMonth, setCalendarMonth] = useState(new Date());
     const [step, setStep] = useState(1); // 1: Dates, 2: Config, 3: Allocation
 
+    // Faculty Table Filters State
+    const [desigFilter, setDesigFilter] = useState('ALL');
+    const [deptFilter, setDeptFilter] = useState('ALL');
+    const [searchQuery, setSearchQuery] = useState('');
+
     // Drag-to-select state
     const [isDragging, setIsDragging] = useState(false);
     const [dragMode, setDragMode] = useState(null); // 'select' or 'deselect'
+
+    // Helper for Designation Filter
+    const matchesDesignation = (facultyDesignation, filterKey) => {
+        if (filterKey === 'ALL') return true;
+        const desig = (facultyDesignation || '').toLowerCase().trim();
+
+        if (filterKey === 'PROFESSOR') {
+            return (desig.includes('professor') || desig.includes('prof')) &&
+                !desig.includes('assistant') && !desig.includes('asst') &&
+                !desig.includes('associate') && !desig.includes('assoc');
+        }
+
+        if (filterKey === 'ASSOCIATE') {
+            return desig.includes('associate') || desig.includes('assoc');
+        }
+
+        if (filterKey === 'ASSISTANT') {
+            return desig.includes('assistant') || desig.includes('asst');
+        }
+
+        if (filterKey === 'OTHER') {
+            const isProf = desig.includes('professor') || desig.includes('prof') ||
+                desig.includes('assistant') || desig.includes('asst') ||
+                desig.includes('associate') || desig.includes('assoc');
+            return !isProf;
+        }
+
+        return true;
+    };
 
 
     useEffect(() => {
@@ -640,6 +674,109 @@ const ExamAllotment = () => {
                         </button>
                     </div>
 
+                    {/* Filter Bar */}
+                    <div className="bg-retro-white rounded-xl shadow-paper border-2 border-retro-dark p-5 space-y-4">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b-2 border-retro-dark/10 pb-3">
+                            <div className="flex items-center gap-2">
+                                <i className="bi bi-funnel-fill text-retro-blue text-lg"></i>
+                                <h4 className="font-black text-retro-dark uppercase text-sm">Filter Faculty & Duties</h4>
+                            </div>
+                            <span className="text-xs font-bold text-retro-secondary">
+                                Showing <span className="font-black text-retro-dark">{
+                                    faculty.filter(prof => {
+                                        if (!matchesDesignation(prof.designation, desigFilter)) return false;
+                                        if (deptFilter !== 'ALL' && prof.department !== deptFilter) return false;
+                                        if (searchQuery.trim() !== '') {
+                                            const q = searchQuery.toLowerCase().trim();
+                                            const nameMatch = prof.name.toLowerCase().includes(q);
+                                            const initialsMatch = (prof.initials || '').toLowerCase().includes(q);
+                                            const deptMatch = (prof.department || '').toLowerCase().includes(q);
+                                            const desigMatch = (prof.designation || '').toLowerCase().includes(q);
+                                            if (!nameMatch && !initialsMatch && !deptMatch && !desigMatch) return false;
+                                        }
+                                        return true;
+                                    }).length
+                                }</span> of {faculty.length} Faculty
+                            </span>
+                        </div>
+
+                        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+                            {/* Designation Pills */}
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-retro-secondary mr-1">Role Filter:</span>
+                                {[
+                                    { key: 'ALL', label: 'All Roles' },
+                                    { key: 'PROFESSOR', label: 'Professors' },
+                                    { key: 'ASSOCIATE', label: 'Associate Prof.' },
+                                    { key: 'ASSISTANT', label: 'Assistant Prof.' },
+                                    { key: 'OTHER', label: 'Others' }
+                                ].map(pill => {
+                                    const isActive = desigFilter === pill.key;
+                                    const count = faculty.filter(f => matchesDesignation(f.designation, pill.key)).length;
+                                    return (
+                                        <button
+                                            key={pill.key}
+                                            onClick={() => setDesigFilter(pill.key)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border-2 flex items-center gap-1.5 ${
+                                                isActive
+                                                    ? 'bg-retro-blue text-white border-retro-dark shadow-sm scale-105'
+                                                    : 'bg-white text-retro-dark border-retro-dark/30 hover:border-retro-blue hover:bg-retro-cream/20'
+                                            }`}
+                                        >
+                                            <span>{pill.label}</span>
+                                            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-black ${
+                                                isActive ? 'bg-white text-retro-blue' : 'bg-retro-cream text-retro-dark'
+                                            }`}>
+                                                {count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Department & Search Filters */}
+                            <div className="flex flex-col sm:flex-row items-center gap-3">
+                                {/* Department Filter Dropdown */}
+                                <select
+                                    value={deptFilter}
+                                    onChange={(e) => setDeptFilter(e.target.value)}
+                                    className="w-full sm:w-auto px-3 py-2 rounded-lg border-2 border-retro-dark/30 bg-white font-bold text-xs uppercase outline-none focus:border-retro-blue cursor-pointer hover:border-retro-blue transition-colors"
+                                >
+                                    <option value="ALL">All Departments</option>
+                                    {[...new Set(faculty.map(f => f.department))].filter(Boolean).sort().map(d => (
+                                        <option key={d} value={d}>{d}</option>
+                                    ))}
+                                </select>
+
+                                {/* Search Input */}
+                                <div className="relative w-full sm:w-48">
+                                    <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-retro-secondary text-xs"></i>
+                                    <input
+                                        type="text"
+                                        placeholder="Search name/initials..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full pl-8 pr-3 py-2 rounded-lg border-2 border-retro-dark/30 bg-white font-bold text-xs outline-none focus:border-retro-blue transition-colors"
+                                    />
+                                </div>
+                                
+                                {(desigFilter !== 'ALL' || deptFilter !== 'ALL' || searchQuery !== '') && (
+                                    <button
+                                        onClick={() => {
+                                            setDesigFilter('ALL');
+                                            setDeptFilter('ALL');
+                                            setSearchQuery('');
+                                        }}
+                                        className="px-3 py-2 text-xs font-bold text-retro-red hover:bg-red-50 rounded-lg border-2 border-red-300 transition-colors uppercase shrink-0"
+                                        title="Reset All Filters"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Table */}
                     <div className="bg-retro-white rounded-xl shadow-paper border-2 border-retro-dark overflow-hidden">
                         <div className="overflow-x-auto max-h-[700px]">
@@ -668,64 +805,103 @@ const ExamAllotment = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-retro-border/50">
-                                    {faculty.sort((a, b) => {
-                                        if (a.designation === 'Professor' && b.designation !== 'Professor') return -1;
-                                        if (a.designation !== 'Professor' && b.designation === 'Professor') return 1;
-                                        if (a.department < b.department) return -1;
-                                        if (a.department > b.department) return 1;
-                                        return a.name.localeCompare(b.name);
-                                    }).map((prof, idx) => {
-                                        let total = 0;
-                                        const isProf = prof.designation === 'Professor';
-                                        return (
-                                            <tr key={prof._id} className={`hover:bg-retro-cream/30 transition-colors ${idx % 2 === 0 ? 'bg-retro-white' : 'bg-retro-cream/10'}`}>
-                                                <td className="px-6 py-3.5 whitespace-nowrap">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${isProf ? 'bg-retro-cream border-retro-dark text-retro-dark' : 'bg-retro-white border-retro-border text-retro-secondary'}`}>
-                                                            {prof.name.charAt(0)}
+                                    {faculty
+                                        .filter(prof => {
+                                            if (!matchesDesignation(prof.designation, desigFilter)) return false;
+                                            if (deptFilter !== 'ALL' && prof.department !== deptFilter) return false;
+                                            if (searchQuery.trim() !== '') {
+                                                const q = searchQuery.toLowerCase().trim();
+                                                const nameMatch = prof.name.toLowerCase().includes(q);
+                                                const initialsMatch = (prof.initials || '').toLowerCase().includes(q);
+                                                const deptMatch = (prof.department || '').toLowerCase().includes(q);
+                                                const desigMatch = (prof.designation || '').toLowerCase().includes(q);
+                                                if (!nameMatch && !initialsMatch && !deptMatch && !desigMatch) return false;
+                                            }
+                                            return true;
+                                        })
+                                        .sort((a, b) => {
+                                            const desigA = (a.designation || '').toLowerCase();
+                                            const desigB = (b.designation || '').toLowerCase();
+                                            const isProfA = desigA.includes('professor') && !desigA.includes('assistant') && !desigA.includes('associate');
+                                            const isProfB = desigB.includes('professor') && !desigB.includes('assistant') && !desigB.includes('associate');
+
+                                            if (isProfA && !isProfB) return -1;
+                                            if (!isProfA && isProfB) return 1;
+                                            if (a.department < b.department) return -1;
+                                            if (a.department > b.department) return 1;
+                                            return a.name.localeCompare(b.name);
+                                        }).map((prof, idx) => {
+                                            let total = 0;
+                                            const desigLower = (prof.designation || '').toLowerCase();
+                                            const isProf = desigLower.includes('professor') && !desigLower.includes('assistant') && !desigLower.includes('associate');
+                                            const isAssoc = desigLower.includes('associate') || desigLower.includes('assoc');
+                                            const isAsst = desigLower.includes('assistant') || desigLower.includes('asst');
+                                            
+                                            return (
+                                                <tr key={prof._id} className={`hover:bg-retro-cream/30 transition-colors ${idx % 2 === 0 ? 'bg-retro-white' : 'bg-retro-cream/10'}`}>
+                                                    <td className="px-6 py-3.5 whitespace-nowrap">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
+                                                                isProf 
+                                                                    ? 'bg-purple-100 border-purple-800 text-purple-900' 
+                                                                    : isAssoc 
+                                                                    ? 'bg-blue-100 border-blue-800 text-blue-900'
+                                                                    : 'bg-retro-white border-retro-border text-retro-secondary'
+                                                            }`}>
+                                                                {prof.name.charAt(0)}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-retro-dark text-sm">{prof.name}</div>
+                                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black border mt-0.5 uppercase tracking-wide ${
+                                                                    isProf
+                                                                        ? 'bg-purple-100 text-purple-800 border-purple-300'
+                                                                        : isAssoc
+                                                                        ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                                                        : isAsst
+                                                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                                        : 'bg-retro-cream/80 text-retro-dark border-retro-dark/20'
+                                                                }`}>
+                                                                    {prof.designation || 'Lecturer'}
+                                                                </span>
+                                                            </div>
                                                         </div>
-                                                        <div>
-                                                            <div className="font-bold text-retro-dark text-sm">{prof.name}</div>
-                                                            {isProf && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black bg-retro-cream border border-retro-dark/20 text-retro-dark mt-0.5 uppercase tracking-wide">PROF</span>}
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-3.5 whitespace-nowrap">
-                                                    <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-retro-white text-retro-secondary border-2 border-retro-border">
-                                                        {prof.department}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3.5 whitespace-nowrap text-center">
-                                                    {(() => {
-                                                        let count = 0;
-                                                        Object.values(allocations).forEach(day => {
-                                                            ['morning', 'afternoon'].forEach(sess => {
-                                                                if (day[sess]?.deputies?.some(p => p._id === prof._id)) count++;
-                                                                if (day[sess]?.invigilators?.some(p => p._id === prof._id)) count++;
+                                                    </td>
+                                                    <td className="px-6 py-3.5 whitespace-nowrap">
+                                                        <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-retro-white text-retro-secondary border-2 border-retro-border">
+                                                            {prof.department}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3.5 whitespace-nowrap text-center">
+                                                        {(() => {
+                                                            let count = 0;
+                                                            Object.values(allocations).forEach(day => {
+                                                                ['morning', 'afternoon'].forEach(sess => {
+                                                                    if (day[sess]?.deputies?.some(p => p._id === prof._id)) count++;
+                                                                    if (day[sess]?.invigilators?.some(p => p._id === prof._id)) count++;
+                                                                });
                                                             });
-                                                        });
-                                                        return (
-                                                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-sm border-2 ${count > 0 ? 'bg-retro-blue text-white border-retro-dark shadow-sm' : 'text-retro-border bg-retro-white border-retro-border'}`}>
-                                                                {count || 0}
-                                                            </span>
-                                                        );
-                                                    })()}
-                                                </td>
-                                                {dates.map(date => (
-                                                    <React.Fragment key={date}>
-                                                        <DutyCell
-                                                            session="morning"
-                                                            allocated={allocations[date]?.morning?.deputies?.some(p => p._id === prof._id) ? 'DEP' : allocations[date]?.morning?.invigilators?.some(p => p._id === prof._id) ? 'INV' : null}
-                                                        />
-                                                        <DutyCell
-                                                            session="afternoon"
-                                                            allocated={allocations[date]?.afternoon?.deputies?.some(p => p._id === prof._id) ? 'DEP' : allocations[date]?.afternoon?.invigilators?.some(p => p._id === prof._id) ? 'INV' : null}
-                                                        />
-                                                    </React.Fragment>
-                                                ))}
-                                            </tr>
-                                        )
-                                    })}
+                                                            return (
+                                                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-sm border-2 ${count > 0 ? 'bg-retro-blue text-white border-retro-dark shadow-sm' : 'text-retro-border bg-retro-white border-retro-border'}`}>
+                                                                    {count || 0}
+                                                                </span>
+                                                            );
+                                                        })()}
+                                                    </td>
+                                                    {dates.map(date => (
+                                                        <React.Fragment key={date}>
+                                                            <DutyCell
+                                                                session="morning"
+                                                                allocated={allocations[date]?.morning?.deputies?.some(p => p._id === prof._id) ? 'DEP' : allocations[date]?.morning?.invigilators?.some(p => p._id === prof._id) ? 'INV' : null}
+                                                            />
+                                                            <DutyCell
+                                                                session="afternoon"
+                                                                allocated={allocations[date]?.afternoon?.deputies?.some(p => p._id === prof._id) ? 'DEP' : allocations[date]?.afternoon?.invigilators?.some(p => p._id === prof._id) ? 'INV' : null}
+                                                            />
+                                                        </React.Fragment>
+                                                    ))}
+                                                </tr>
+                                            )
+                                        })}
                                 </tbody>
                                 <tfoot className="sticky bottom-0 bg-retro-white font-bold z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] border-t-2 border-retro-dark">
                                     <tr className="bg-retro-cream/20">
