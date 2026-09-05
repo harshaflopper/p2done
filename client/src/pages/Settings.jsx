@@ -127,7 +127,7 @@ const Settings = () => {
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-retro-blue">•</span>
-                                            <span><span className="font-bold">Durga Prasad</span> — E & T Engineering (1SI24ET014)</span>
+                                            <span><span className="font-bold"></span></span>
                                         </li>
                                     </ul>
                                 </div>

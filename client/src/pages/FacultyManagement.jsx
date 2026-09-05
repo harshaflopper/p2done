@@ -255,10 +255,7 @@ const FacultyManagement = () => {
                                                 <span className="w-6 h-6 rounded-full bg-retro-dark text-white flex items-center justify-center text-[10px] font-bold">H</span>
                                                 <span><span className="font-bold">Harsha T. C.</span> — AI & Data Science <span className="opacity-50 text-[10px]">(1SI24AD064)</span></span>
                                             </li>
-                                            <li className="flex items-center gap-3">
-                                                <span className="w-6 h-6 rounded-full bg-retro-blue text-white flex items-center justify-center text-[10px] font-bold">D</span>
-                                                <span><span className="font-bold">Durga Prasad</span> — E & T Engineering <span className="opacity-50 text-[10px]">(1SI24ET014)</span></span>
-                                            </li>
+
                                         </ul>
                                     </div>
                                 </div>
