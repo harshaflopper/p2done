@@ -12,7 +12,7 @@ const formatDate = (dateStr) => {
 // Watermark HTML - using table for better Word compatibility
 const getWatermark = () => `
     <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -10; pointer-events: none; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-         <img src="${LOGO_BASE64}" style="width: 500px; opacity: 0.15; transform: rotate(-15deg);" alt="Watermark" />
+         <img src="${LOGO_BASE64}" style="width: 500px; opacity: 0.02; transform: rotate(-15deg);" alt="Watermark" />
     </div>
 `;
 
@@ -30,7 +30,7 @@ const addWatermarkToPDF = (doc) => {
                 // Determine if GState is available on doc or API
                 const GState = doc.GState || (jsPDF.API && jsPDF.API.GState);
                 if (GState) {
-                    doc.setGState(new GState({ opacity: 0.15 }));
+                    doc.setGState(new GState({ opacity: 0.02 }));
                 }
             }
 
@@ -74,7 +74,7 @@ export const generateDeputyReport = (allocations, config) => {
                     
                     <!-- Content Container -->
                     <div style="position: relative; z-index: 10;">
-                        <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 20px;">SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMKUR</div>
+                        <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 20px;">SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMAKURU - 572103</div>
                         <div style="margin-bottom: 15px;">
                             <span style="display: inline-block; margin-right: 30px;"><strong>Date of Exam:</strong> ${formatDate(date)} ${sessionCode}</span>
                             <span style="display: inline-block; margin-right: 30px;"><strong>Number of Rooms:</strong> ${roomCount}</span>
@@ -171,7 +171,7 @@ export const generateRoomReport = (sessionData, customFilename) => {
                 <div style="position: relative; overflow: hidden; padding: 20px;">
                     ${getWatermark()}
                     <div style="position: relative; z-index: 10;">
-                        <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 20px;">SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMKUR</div>
+                        <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 20px;">SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMAKURU - 572103</div>
                         <div style="margin-bottom: 15px;">
                             <strong>Date:</strong> ${date} (${sessionLabel})
                         </div>
@@ -365,7 +365,7 @@ export const generateDepartmentReport = (sessionData, targetDept = null) => {
                         }
                     });
                 });
-                const dutyContent = dutyStrings.length > 0 ? dutyStrings.join(', ') : '-';
+                const dutyContent = dutyStrings.length > 0 ? dutyStrings.join(' <b>,</b> ') : '-';
                 return `
                                 <tr>
                                     <td style="border: 1px solid #000; padding: 4px; text-align: center;">${idx + 1}</td>
@@ -389,7 +389,7 @@ export const generateDepartmentReport = (sessionData, targetDept = null) => {
                 ${getWatermark()}
                 <div style="position: relative; z-index: 10;">
                     <div style="text-align: center; margin-bottom: 20px;">
-                        <div style="font-weight: bold; font-size: 16px;">SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMKUR</div>
+                        <div style="font-weight: bold; font-size: 16px;">SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMAKURU - 572103</div>
                         <div style="font-weight: bold; font-size: 14px; margin-top: 5px;">ALLOTMENT OF INVIGILATION DUTY FOR SEMESTER EXAMINATIONS</div>
                         <div style="font-weight: bold; font-size: 14px; margin-top: 5px; text-decoration: underline;">${dept.toUpperCase()} - EXAM ALLOTMENT</div>
                     </div>
@@ -470,14 +470,18 @@ export const generateRoomPDF = (sessionData, customFilename) => {
 
                 const sessionLabel = session === 'morning' ? 'MORNING' : 'AFTERNOON';
 
-                // Header
+                // Header Logo (Top-Left)
+                doc.addImage(LOGO_BASE64, 'PNG', 4, 3.5, 22, 22);
+
+                // Header Title
+                doc.setTextColor(0, 0, 0);
                 doc.setFontSize(14);
                 doc.setFont('helvetica', 'bold');
-                doc.text('SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMKUR', 105, 15, { align: 'center' });
+                doc.text('SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMAKURU - 572103', 105, 15, { align: 'center' });
 
                 doc.setFontSize(11);
                 doc.setFont('helvetica', 'normal');
-                doc.text(`Date: ${date} (${sessionLabel})`, 14, 25);
+                doc.text(`Date: ${date} (${sessionLabel})`, 14, 28);
 
                 let startY = 35;
 
@@ -503,8 +507,9 @@ export const generateRoomPDF = (sessionData, customFilename) => {
                         head: deputyHeaders,
                         body: deputyRows,
                         theme: 'grid',
-                        styles: { fontSize: 9, cellPadding: 2 },
-                        headStyles: { fillColor: [220, 220, 220], textColor: 20, fontStyle: 'bold' }
+                        styles: { fontSize: 9, cellPadding: 2.5, textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.3 },
+                        headStyles: { fillColor: [170, 170, 170], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [0, 0, 0], lineWidth: 0.3 },
+                        bodyStyles: { textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2 }
                     });
 
                     startY = doc.lastAutoTable.finalY + 10;
@@ -531,8 +536,9 @@ export const generateRoomPDF = (sessionData, customFilename) => {
                     head: invigHeaders,
                     body: invigRows,
                     theme: 'grid',
-                    styles: { fontSize: 9, cellPadding: 2 },
-                    headStyles: { fillColor: [220, 220, 220], textColor: 20, fontStyle: 'bold' }
+                    styles: { fontSize: 9, cellPadding: 2.5, textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.3 },
+                    headStyles: { fillColor: [170, 170, 170], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [0, 0, 0], lineWidth: 0.3 },
+                    bodyStyles: { textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2 }
                 });
             });
         });
@@ -623,9 +629,13 @@ export const generateDepartmentPDF = (sessionData, targetDept = null) => {
             }
             isFirstPage = false;
 
-            doc.setFontSize(16);
+            // Header Logo (Top-Left)
+            doc.addImage(LOGO_BASE64, 'PNG', 12, 3.5, 24, 24);
+
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(15);
             doc.setFont('helvetica', 'bold');
-            doc.text('SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMKUR', 148.5, 15, { align: 'center' });
+            doc.text('SIDDAGANGA INSTITUTE OF TECHNOLOGY, TUMAKURU - 572103', 148.5, 15, { align: 'center' });
 
             doc.setFontSize(12);
             doc.text('ALLOTMENT OF INVIGILATION DUTY FOR SEMESTER EXAMINATIONS', 148.5, 23, { align: 'center' });
@@ -693,7 +703,7 @@ export const generateDepartmentPDF = (sessionData, targetDept = null) => {
                         fac.name,
                         fac.initials,
                         fac.designation,
-                        dutyStrings.join(', ')
+                        dutyStrings.join(' , ')
                     ];
                 });
 
@@ -702,8 +712,9 @@ export const generateDepartmentPDF = (sessionData, targetDept = null) => {
                     head: headers,
                     body: rows,
                     theme: 'grid',
-                    styles: { fontSize: 9, cellPadding: 2 },
-                    headStyles: { fillColor: [220, 220, 220], textColor: 20, fontStyle: 'bold' },
+                    styles: { fontSize: 9, cellPadding: 2.5, textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.3 },
+                    headStyles: { fillColor: [170, 170, 170], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [0, 0, 0], lineWidth: 0.3 },
+                    bodyStyles: { textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2 },
                     columnStyles: {
                         0: { cellWidth: 15, halign: 'center' },
                         1: { cellWidth: 50 },
