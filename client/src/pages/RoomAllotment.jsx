@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { parseSessionData } from '../utils/documentParser';
 import { generateRoomReport, generateDepartmentReport, generateRoomPDF, generateDepartmentPDF } from '../utils/exportUtils';
+import EditSessionModal from '../components/EditSessionModal';
 
 const ROOM_LIST = [
     'GJCB101', 'GJCB102', 'GJCB105', 'GJCB106', 'GJCB107', 'GJCB201', 'GJCB202', 'GJCB205', 'GJCB207', 'GJCB208',
@@ -87,6 +88,21 @@ const RoomAllotment = () => {
     const [sessionData, setSessionData] = useState({});
     const [status, setStatus] = useState('');
     const [isManualMode, setIsManualMode] = useState(false); // Track if user is manually editing
+    const [editingSession, setEditingSession] = useState(null); // { date, session }
+
+    const handleSaveEditedData = async (updatedData) => {
+        try {
+            await axios.post('/api/allocations', { ...updatedData, password: 'AUTO_SAVE_BYPASS' });
+            setSessionData(updatedData);
+            setIsManualMode(false);
+            alert("Session edits & faculty duty swaps saved successfully!");
+        } catch (err) {
+            console.error("Failed to save edited session:", err);
+            const errMsg = err.response?.data?.msg || err.message;
+            alert(`Error saving edits: ${errMsg}`);
+            throw err;
+        }
+    };
 
     // Helper to check if data is already allocated
     const checkIfAllocated = (data) => {
@@ -398,10 +414,17 @@ const RoomAllotment = () => {
                                                     </button>
                                                     <button
                                                         onClick={() => handleDownloadPDF(date, session)}
-                                                        className="px-2 py-1.5 text-retro-red hover:bg-retro-red hover:text-white transition-colors"
+                                                        className="px-2 py-1.5 text-retro-red hover:bg-retro-red hover:text-white transition-colors border-r-2 border-retro-border"
                                                         title="Download PDF"
                                                     >
                                                         <i className="bi bi-file-pdf-fill"></i>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setEditingSession({ date, session })}
+                                                        className="px-2 py-1.5 text-purple-600 hover:bg-purple-600 hover:text-white transition-colors"
+                                                        title="Edit Session & Swap Faculty"
+                                                    >
+                                                        <i className="bi bi-pencil-square"></i>
                                                     </button>
                                                 </div>
                                             ))}
@@ -457,6 +480,17 @@ const RoomAllotment = () => {
                     </div>
                 )}
             </div>
+
+            {editingSession && (
+                <EditSessionModal
+                    isOpen={!!editingSession}
+                    onClose={() => setEditingSession(null)}
+                    date={editingSession.date}
+                    session={editingSession.session}
+                    sessionData={sessionData}
+                    onSave={handleSaveEditedData}
+                />
+            )}
         </div>
     );
 };
