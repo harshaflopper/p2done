@@ -6,10 +6,10 @@ const Department = require('../models/Department');
 
 const LEGACY_DATA_PATH = 'D:/wrappedwebsite/allotment/static/faculty_json/';
 
-const seedDatabase = async () => {
+const seedDatabase = async (force = false) => {
     try {
         const facultyCount = await Faculty.countDocuments();
-        if (facultyCount > 0) {
+        if (facultyCount >= 100 && !force) {
             console.log(`Database already has ${facultyCount} faculty members. Skipping auto-seed.`);
             return;
         }

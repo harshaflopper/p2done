@@ -22,7 +22,7 @@ connectDB().then(async () => {
     try {
         console.log('Database connected successfully.');
     } catch (err) {
-        console.error('DEBUG DUMP ERROR:', err);
+        console.error('Database Connection Error:', err);
     }
 });
 
@@ -36,14 +36,14 @@ const facultyRoutes = require('./routes/facultyRoutes');
 const allocationRoutes = require('./routes/allocationRoutes');
 const authRoutes = require('./routes/authRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const smsRoutes = require('./routes/smsRoutes');
 
 app.use('/api/faculty', facultyRoutes);
 app.use('/api/allocations', allocationRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
-app.use('/api/auth', authRoutes);
+app.use('/api/sms', smsRoutes);
 
-// Force restart for Department Fix v2 (LEAN query)
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT} - DEPT FIX v2 ACTIVE`);
+    console.log(`Server running on port ${PORT} - VENDEL.CC SMS GATEWAY ACTIVE`);
 });

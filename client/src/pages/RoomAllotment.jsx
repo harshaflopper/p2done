@@ -3,6 +3,7 @@ import axios from 'axios';
 import { parseSessionData } from '../utils/documentParser';
 import { generateRoomReport, generateDepartmentReport, generateRoomPDF, generateDepartmentPDF } from '../utils/exportUtils';
 import EditSessionModal from '../components/EditSessionModal';
+import SMSNotificationModal from '../components/SMSNotificationModal';
 
 const ROOM_LIST = [
     'GJCB101', 'GJCB102', 'GJCB105', 'GJCB106', 'GJCB107', 'GJCB201', 'GJCB202', 'GJCB205', 'GJCB207', 'GJCB208',
@@ -89,6 +90,7 @@ const RoomAllotment = () => {
     const [status, setStatus] = useState('');
     const [isManualMode, setIsManualMode] = useState(false); // Track if user is manually editing
     const [editingSession, setEditingSession] = useState(null); // { date, session }
+    const [isSMSModalOpen, setIsSMSModalOpen] = useState(false);
 
     const handleSaveEditedData = async (updatedData) => {
         try {
@@ -361,6 +363,13 @@ const RoomAllotment = () => {
                         >
                             Dept PDF
                         </button>
+                        <button
+                            className="bg-[#1e3a8a] hover:bg-blue-900 text-white px-6 py-3 rounded-lg font-black shadow-paper active:translate-y-[0px] hover:translate-y-[-2px] transition-all flex items-center gap-2 border-2 border-retro-dark uppercase tracking-wider text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-y-0"
+                            onClick={() => setIsSMSModalOpen(true)}
+                            disabled={Object.keys(sessionData).length === 0}
+                        >
+                            <i className="bi bi-chat-text-fill text-sm"></i> SMS Controller
+                        </button>
 
                     </div>
                 </div>
@@ -491,6 +500,12 @@ const RoomAllotment = () => {
                     onSave={handleSaveEditedData}
                 />
             )}
+
+            <SMSNotificationModal
+                isOpen={isSMSModalOpen}
+                onClose={() => setIsSMSModalOpen(false)}
+                sessionData={sessionData}
+            />
         </div>
     );
 };

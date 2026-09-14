@@ -177,25 +177,22 @@ exports.saveAllocations = async (req, res) => {
 // @access  Public
 exports.getAllAllocations = async (req, res) => {
     try {
-        const docs = await SessionData.find().sort({ date: 1, session: 1 });
-        // FIXED: Include 'department' in the projection so it's actually fetched from DB!
-        // Use .lean() to get Plain Old JavaScript Objects (POJO)
-        const facultyList = await require('../models/Faculty').find({}, 'name initials phone department').lean();
+        // Fetch all faculty from DB without field projection so Phone/mobile/contact properties are not stripped
+        const facultyList = await require('../models/Faculty').find().lean();
+        const docs = await SessionData.find().lean();
 
-        // Create lookup map: Normalized -> { phone, department }
         console.log(`Loaded ${facultyList.length} faculty for data enrichment.`);
         if (facultyList.length > 0) {
             console.log('Sample Faculty Record:', JSON.stringify(facultyList[0], null, 2));
         }
 
-        // Super Normalizer: Remove Dr/Prof, remove ALL non-alphanumeric, lowercase
-
-        // Super Normalizer: Remove Dr/Prof, remove ALL non-alphanumeric, lowercase
+        const extractPhoneVal = (f) => f.Phone || f.phone || f.mobile || f.Mobile || f.contact || f.Contact || f.phone_no || f.mobile_no || '';
         const normalize = (s) => (s || '').replace(/^dr\.|^prof\./i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 
         const facultyMap = {};
         facultyList.forEach(f => {
-            const data = { phone: f.phone || '', department: f.department || '' };
+            const phoneStr = extractPhoneVal(f);
+            const data = { phone: phoneStr, department: f.department || f.dept || '' };
             if (f.initials) facultyMap[normalize(f.initials)] = data;
             if (f.name) facultyMap[normalize(f.name)] = data;
         });
